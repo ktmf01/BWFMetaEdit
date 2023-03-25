@@ -18,6 +18,7 @@
 //---------------------------------------------------------------------------
 #include "ZenLib/Ztring.h"
 #include "ZenLib/File.h"
+#include "FLAC/metadata.h"
 //---------------------------------------------------------------------------
 
 namespace FLACwrapper
@@ -69,6 +70,27 @@ public :
 
 private:
     ZenLib::File File_Handle;
+    char * chunkbuffer = NULL;
+    ZenLib::int64u chunkbuffer_size = 0;
+    ZenLib::int64u chunkbuffer_readpointer = 0;
+    ZenLib::int64u chunkbuffer_data_location = 0;
+    ZenLib::int64u chunkbuffer_data_length = 0;
+    bool FLAC_available;
+
+    // Function pointers
+    void * FLAChandle;
+    const char ** FLACversion;
+    FLAC__Metadata_SimpleIterator *     (*local_FLAC_metadata_simple_iterator_new)();
+    void                                (*local_FLAC_metadata_simple_iterator_delete)(FLAC__Metadata_SimpleIterator *);
+    FLAC__Metadata_SimpleIteratorStatus (*local_FLAC_metadata_simple_iterator_status)(FLAC__Metadata_SimpleIterator *);
+    FLAC__bool                          (*local_FLAC_metadata_simple_iterator_init)(FLAC__Metadata_SimpleIterator *, const char *, FLAC__bool, FLAC__bool);
+    FLAC__bool                          (*local_FLAC_metadata_simple_iterator_next)(FLAC__Metadata_SimpleIterator *);
+    FLAC__bool                          (*local_FLAC_metadata_simple_iterator_prev)(FLAC__Metadata_SimpleIterator *);
+    FLAC__bool                          (*local_FLAC_metadata_simple_iterator_is_last)(FLAC__Metadata_SimpleIterator *);
+    FLAC__MetadataType                  (*local_FLAC_metadata_simple_iterator_get_block_type)(FLAC__Metadata_SimpleIterator *);
+    FLAC__bool                          (*local_FLAC_metadata_simple_iterator_get_application_id)(FLAC__Metadata_SimpleIterator *, FLAC__byte *);
+    FLAC__StreamMetadata *              (*local_FLAC_metadata_simple_iterator_get_block)(FLAC__Metadata_SimpleIterator *);
+    void                                (*local_FLAC_metadata_object_delete)(FLAC__StreamMetadata *);
 };
 
 } //NameSpace
