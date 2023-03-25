@@ -188,19 +188,25 @@ size_t File::Read (ZenLib::int8u* Buffer, size_t Buffer_Size_Max)
 //---------------------------------------------------------------------------
 size_t File::Write (const ZenLib::int8u* Buffer, size_t Buffer_Size)
 {
-    return File_Handle.Write(Buffer, Buffer_Size);
+    if(chunkbuffer == NULL)
+        return File_Handle.Write(Buffer, Buffer_Size);
+    return false;
 }
 
 //---------------------------------------------------------------------------
 bool File::Truncate (ZenLib::int64u Offset)
 {
-    return File_Handle.Truncate(Offset);
+    if(chunkbuffer == NULL)
+        return File_Handle.Truncate(Offset);
+    return false;
 }
 
 //---------------------------------------------------------------------------
 size_t File::Write (const ZenLib::Ztring &ToWrite)
 {
-    return File_Handle.Write(ToWrite);
+    if(chunkbuffer == NULL)
+        return File_Handle.Write(ToWrite);
+    return false;
 }
 
 // ***************************************************************************

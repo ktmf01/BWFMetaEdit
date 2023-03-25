@@ -394,7 +394,7 @@ bool Riff_Handler::Open_Internal(const string &FileName)
     Chunks->Global->In.Close();
 
     //ReadOnly check
-    if (!File().Open(Ztring().From_UTF8(FileName), File::Access_Write))
+    if (!FLACwrapper::File().Open(Ztring().From_UTF8(FileName), File::Access_Write))
     {
         Chunks->Global->Read_Only=true;
             Information<<Chunks->Global->File_Name.To_UTF8()<<": Is read only"<<endl;
