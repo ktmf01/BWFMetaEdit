@@ -4,8 +4,6 @@
  *  be found in the License.txt file in the root of the source tree.
  */
 
-#include "ZenLib/File.h"
-#include "ZenLib/FileName.h"
 #include "FLACwrapper/File.h"
 #include <dlfcn.h>
 //---------------------------------------------------------------------------
@@ -22,21 +20,22 @@ namespace FLACwrapper
     }                                               \
     else {                                          \
         FLACversion = (const char **) dlsym(FLAChandle, "FLAC__VERSION_STRING"); \
-        local_FLAC_metadata_simple_iterator_new = (FLAC__Metadata_SimpleIterator * (*)()) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_new"); \
-        local_FLAC_metadata_simple_iterator_delete = (void (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_delete"); \
-        local_FLAC_metadata_simple_iterator_status = (FLAC__Metadata_SimpleIteratorStatus (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_status"); \
-        local_FLAC_metadata_simple_iterator_init = (FLAC__bool (*)(FLAC__Metadata_SimpleIterator *, const char *, FLAC__bool, FLAC__bool)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_init"); \
-        local_FLAC_metadata_simple_iterator_next = (FLAC__bool (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_next"); \
-        local_FLAC_metadata_simple_iterator_prev = (FLAC__bool (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_prev"); \
-        local_FLAC_metadata_simple_iterator_is_last = (FLAC__bool (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_is_last"); \
-        local_FLAC_metadata_simple_iterator_get_block_type = (FLAC__MetadataType (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_get_block_type"); \
-        local_FLAC_metadata_simple_iterator_get_application_id = (FLAC__bool (*)(FLAC__Metadata_SimpleIterator *, FLAC__byte *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_get_application_id"); \
-        local_FLAC_metadata_simple_iterator_get_block = (FLAC__StreamMetadata * (*)(FLAC__Metadata_SimpleIterator *)) dlsym(FLAChandle, "FLAC__metadata_simple_iterator_get_block"); \
+        local_FLAC_stream_decoder_new = (FLAC__StreamDecoder * (*)()) dlsym(FLAChandle, "FLAC__stream_decoder_new"); \
+        local_FLAC_stream_decoder_set_metadata_ignore_all = (FLAC__bool (*)(FLAC__StreamDecoder *)) dlsym(FLAChandle, "FLAC__stream_decoder_set_metadata_ignore_all"); \
+        local_FLAC_stream_decoder_set_metadata_respond_application = (FLAC__bool (*)(FLAC__StreamDecoder *, const FLAC__byte *)) dlsym(FLAChandle, "FLAC__stream_decoder_set_metadata_respond_application"); \
+        local_FLAC_stream_decoder_init_file = (FLAC__StreamDecoderInitStatus (*)(FLAC__StreamDecoder *, const char *, FLAC__StreamDecoderWriteCallback, FLAC__StreamDecoderMetadataCallback, FLAC__StreamDecoderErrorCallback, void *)) dlsym(FLAChandle, "FLAC__stream_decoder_init_file"); \
+        local_FLAC_stream_decoder_process_until_end_of_metadata = (FLAC__bool (*)(FLAC__StreamDecoder *)) dlsym(FLAChandle, "FLAC__stream_decoder_process_until_end_of_metadata"); \
+        local_FLAC_stream_decoder_process_single = (FLAC__bool (*)(FLAC__StreamDecoder *)) dlsym(FLAChandle, "FLAC__stream_decoder_process_single"); \
+        local_FLAC_stream_decoder_finish = (FLAC__bool (*)(FLAC__StreamDecoder *)) dlsym(FLAChandle, "FLAC__stream_decoder_finish"); \
+        local_FLAC_stream_decoder_reset = (FLAC__bool (*)(FLAC__StreamDecoder *)) dlsym(FLAChandle, "FLAC__stream_decoder_reset"); \
+        local_FLAC_stream_decoder_delete = (void (*)(FLAC__StreamDecoder *)) dlsym(FLAChandle, "FLAC__stream_decoder_delete"); \
         local_FLAC_metadata_object_delete = (void (*)(FLAC__StreamMetadata *)) dlsym(FLAChandle, "FLAC__metadata_object_delete"); \
-        if(dlerror() == NULL)                       \
-            FLAC_available = true;                  \
+        if(dlerror() == NULL)  {                    \
+            FLAC_decoder = local_FLAC_stream_decoder_new(); \
+            if(FLAC_decoder != NULL)                \
+                    FLAC_available = true;          \
+        }                                           \
     }
-
 
 // ***************************************************************************
 // Constructor/Destructor
@@ -59,8 +58,8 @@ File::File(ZenLib::Ztring File_Name, ZenLib::File::access_t Access)
 //---------------------------------------------------------------------------
 File::~File()
 {
-    if(chunkbuffer != NULL)
-        free(chunkbuffer);
+    if(callbackdata.chunkbuffer != NULL)
+        free(callbackdata.chunkbuffer);
     dlclose(FLAChandle);
 }
 
@@ -74,54 +73,19 @@ bool File::Open (const ZenLib::tstring &File_Name_, ZenLib::File::access_t Acces
     ZenLib::FileName filename = File_Name_;
     if(filename.Extension_Get() == ZenLib::Ztring("flac")) {
         /* FLAC parsing */
-        FLAC__StreamMetadata * block;
-        void * temp_ptr;
+        FLAC__byte rifftag[4] = {'r','i','f','f'};
 
         if(!FLAC_available)
             return false;
-
-        if(Access != ZenLib::File::access_t::Access_Read)
+        if(!local_FLAC_stream_decoder_set_metadata_ignore_all(FLAC_decoder))
             return false;
-
-        FLAC__Metadata_SimpleIterator * iterator = local_FLAC_metadata_simple_iterator_new();
-        if(iterator == NULL)
+        if(!local_FLAC_stream_decoder_set_metadata_respond_application(FLAC_decoder,rifftag))
             return false;
-        if(!local_FLAC_metadata_simple_iterator_init(iterator, ZenLib::Ztring(File_Name_).To_UTF8().c_str(), true /* read only */, true /* preserve file stats */))
+        if(local_FLAC_stream_decoder_init_file(FLAC_decoder, ZenLib::Ztring(File_Name_).To_UTF8().c_str(), FLAC_WriteCallback, FLAC_MetadataCallback, FLAC_ErrorCallback, (void*)&callbackdata) != FLAC__STREAM_DECODER_INIT_STATUS_OK)
             return false;
-        do {
-            FLAC__byte id[4];
-            if(local_FLAC_metadata_simple_iterator_get_block_type(iterator) != FLAC__METADATA_TYPE_APPLICATION)
-                continue;
-            if(!local_FLAC_metadata_simple_iterator_get_application_id(iterator, id))
-                return false;
-            if(memcmp(id,"riff",4) != 0)
-                continue;
-            block = local_FLAC_metadata_simple_iterator_get_block(iterator);
-            if(block == NULL)
-                return false;
-            if(block->length < 12) {
-                local_FLAC_metadata_object_delete(block);
-                continue;
-            }
-            temp_ptr = realloc(chunkbuffer,chunkbuffer_size + block->length - 4);
-            if(temp_ptr == NULL)
-                return false;
-            chunkbuffer = (char *)temp_ptr;
-            memcpy(chunkbuffer + chunkbuffer_size, block->data.application.data,block->length - 4);
-            chunkbuffer_size += block->length - 4;
-            if(chunkbuffer_data_location == 0)
-                // Check whether this is the data chunk
-                if(memcmp(block->data.application.data,"data",4) == 0) {
-                    chunkbuffer_data_location = chunkbuffer_size;
-                    chunkbuffer_data_length = (ZenLib::int64u)(block->data.application.data[4]) +
-                                              ((ZenLib::int64u)(block->data.application.data[5]) << 8) + 
-                                              ((ZenLib::int64u)(block->data.application.data[6]) << 16) +
-                                              ((ZenLib::int64u)(block->data.application.data[7]) << 24);
-                }
-            local_FLAC_metadata_object_delete(block);
-        } while(local_FLAC_metadata_simple_iterator_next(iterator));
-        
-        if(chunkbuffer == NULL || chunkbuffer_data_location == 0){
+        if(!local_FLAC_stream_decoder_process_until_end_of_metadata(FLAC_decoder))
+            return false;
+        if(callbackdata.chunkbuffer == NULL || callbackdata.chunkbuffer_data_location == 0){
             // Haven't found data chunk, or any chunks at all
             return false;
         }
@@ -149,38 +113,52 @@ void File::Close ()
 //---------------------------------------------------------------------------
 size_t File::Read (ZenLib::int8u* Buffer, size_t Buffer_Size_Max)
 {
-    if(chunkbuffer == NULL)
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.Read(Buffer, Buffer_Size_Max);
 
-    if(chunkbuffer_readpointer < chunkbuffer_data_location) {
+    if(callbackdata.chunkbuffer_readpointer < callbackdata.chunkbuffer_data_location) {
         // Data to be read is all in front of audio
-        size_t read_size = chunkbuffer_data_location - chunkbuffer_readpointer;
+        size_t read_size = callbackdata.chunkbuffer_data_location - callbackdata.chunkbuffer_readpointer;
         if(read_size > Buffer_Size_Max)
             read_size = Buffer_Size_Max;
-        
-        memcpy(Buffer, chunkbuffer + chunkbuffer_readpointer, read_size);
-        chunkbuffer_readpointer += read_size;
+
+        memcpy(Buffer, callbackdata.chunkbuffer + callbackdata.chunkbuffer_readpointer, read_size);
+        callbackdata.chunkbuffer_readpointer += read_size;
         return read_size;
     }
-    else if(chunkbuffer_readpointer < chunkbuffer_data_location + chunkbuffer_data_length) {
+    else if(callbackdata.chunkbuffer_readpointer < callbackdata.chunkbuffer_data_location + callbackdata.chunkbuffer_data_length) {
         // Data to be read is audio
-        // For now return empty data
-        size_t read_size = chunkbuffer_data_location + chunkbuffer_data_length - chunkbuffer_readpointer;
+        size_t read_size = callbackdata.chunkbuffer_data_location + callbackdata.chunkbuffer_data_length - callbackdata.chunkbuffer_readpointer;
         if(read_size > Buffer_Size_Max)
             read_size = Buffer_Size_Max;
-        
-        memset(Buffer, 0, read_size);
-        chunkbuffer_readpointer += read_size;
-        return read_size;
+        if(callbackdata.got_error)
+            return 0;
+        if(callbackdata.audiobuffer_readpointer == 0) {
+            if(!local_FLAC_stream_decoder_process_single(FLAC_decoder)) {
+                callbackdata.got_error = true;
+                return 0;
+            }
+        }
+        if(read_size <= callbackdata.audiobuffer_sizeinuse - callbackdata.audiobuffer_readpointer) {
+            read_size = callbackdata.audiobuffer_sizeinuse - callbackdata.audiobuffer_readpointer;
+            memcpy(Buffer, callbackdata.audiobuffer + callbackdata.audiobuffer_readpointer, read_size);
+            callbackdata.audiobuffer_readpointer = 0;
+            return read_size;
+        }
+        else {
+            memcpy(Buffer, callbackdata.audiobuffer + callbackdata.audiobuffer_readpointer, read_size);
+            callbackdata.audiobuffer_readpointer += read_size;
+            return read_size;
+        }
     }
     else {
         // Data to be read is behind audio
-        size_t read_size = chunkbuffer_size + chunkbuffer_data_length - chunkbuffer_readpointer;
+        size_t read_size = callbackdata.chunkbuffer_size + callbackdata.chunkbuffer_data_length - callbackdata.chunkbuffer_readpointer;
         if(read_size > Buffer_Size_Max)
             read_size = Buffer_Size_Max;
 
-        memcpy(Buffer, chunkbuffer + chunkbuffer_readpointer - chunkbuffer_data_length, read_size);
-        chunkbuffer_readpointer += read_size;
+        memcpy(Buffer, callbackdata.chunkbuffer + callbackdata.chunkbuffer_readpointer - callbackdata.chunkbuffer_data_length, read_size);
+        callbackdata.chunkbuffer_readpointer += read_size;
         return read_size;
     }
 }
@@ -188,7 +166,7 @@ size_t File::Read (ZenLib::int8u* Buffer, size_t Buffer_Size_Max)
 //---------------------------------------------------------------------------
 size_t File::Write (const ZenLib::int8u* Buffer, size_t Buffer_Size)
 {
-    if(chunkbuffer == NULL)
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.Write(Buffer, Buffer_Size);
     return false;
 }
@@ -196,7 +174,7 @@ size_t File::Write (const ZenLib::int8u* Buffer, size_t Buffer_Size)
 //---------------------------------------------------------------------------
 bool File::Truncate (ZenLib::int64u Offset)
 {
-    if(chunkbuffer == NULL)
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.Truncate(Offset);
     return false;
 }
@@ -204,7 +182,7 @@ bool File::Truncate (ZenLib::int64u Offset)
 //---------------------------------------------------------------------------
 size_t File::Write (const ZenLib::Ztring &ToWrite)
 {
-    if(chunkbuffer == NULL)
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.Write(ToWrite);
     return false;
 }
@@ -216,30 +194,33 @@ size_t File::Write (const ZenLib::Ztring &ToWrite)
 //---------------------------------------------------------------------------
 bool File::GoTo (ZenLib::int64s Position_ToMove, ZenLib::File::move_t MoveMethod)
 {
-    if(chunkbuffer == NULL)
+    ZenLib::int64u position;
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.GoTo(Position_ToMove, MoveMethod);
 
-    if(MoveMethod == ZenLib::File::move_t::FromBegin) {
-        chunkbuffer_readpointer = Position_ToMove;
-        return true;
-    }
-    else if(MoveMethod == ZenLib::File::move_t::FromCurrent) {
-        chunkbuffer_readpointer += Position_ToMove;
-        return true;
-    }
-    else /*if(MoveMethod == ZenLib::File::move_t::FromEnd)*/ {
-        chunkbuffer_readpointer = (ZenLib::File::move_t)chunkbuffer_data_length + Position_ToMove;
-        return true;
-    }
+    if(MoveMethod == ZenLib::File::move_t::FromBegin)
+        position = Position_ToMove;
+    else if(MoveMethod == ZenLib::File::move_t::FromCurrent)
+        callbackdata.chunkbuffer_readpointer += Position_ToMove;
+    else //if(MoveMethod == ZenLib::File::move_t::FromEnd)
+        callbackdata.chunkbuffer_readpointer = (ZenLib::File::move_t)callbackdata.chunkbuffer_data_length + Position_ToMove;
+
+    // Seeks halfway audio data are not supported
+    if(position > callbackdata.chunkbuffer_data_location && position < (callbackdata.chunkbuffer_data_location + callbackdata.chunkbuffer_data_length))
+        return false;
+    else if(position > (callbackdata.chunkbuffer_data_length + callbackdata.chunkbuffer_size))
+        return false;
+    callbackdata.chunkbuffer_readpointer = position;
+    return true;
 }
 
 //---------------------------------------------------------------------------
 ZenLib::int64u File::Position_Get ()
 {
-    if(chunkbuffer == NULL)
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.Position_Get();
-    
-    return chunkbuffer_readpointer;
+
+    return callbackdata.chunkbuffer_readpointer;
 }
 
 // ***************************************************************************
@@ -249,9 +230,9 @@ ZenLib::int64u File::Position_Get ()
 //---------------------------------------------------------------------------
 ZenLib::int64u File::Size_Get()
 {
-    if(chunkbuffer == NULL)
+    if(callbackdata.chunkbuffer == NULL)
         return File_Handle.Size_Get();
-    return chunkbuffer_size + chunkbuffer_data_length;
+    return callbackdata.chunkbuffer_size + callbackdata.chunkbuffer_data_length;
 }
 
 //---------------------------------------------------------------------------
@@ -337,5 +318,86 @@ bool File::Delete(const ZenLib::Ztring &File_Name)
 //***************************************************************************
 //
 //***************************************************************************
+void FLAC_MetadataCallback(const FLAC__StreamDecoder *decoder, const FLAC__StreamMetadata *metadata, void *client_data)
+{
+    File::clientdata_t * callbackdata = (File::clientdata_t *)(client_data);
+    void * temp_ptr = realloc(callbackdata->chunkbuffer,callbackdata->chunkbuffer_size + metadata->length - 4);
+    (void) decoder;
+
+    if(temp_ptr == NULL) {
+        callbackdata->got_error = true;
+        return;
+    }
+    callbackdata->chunkbuffer = (char *)temp_ptr;
+    memcpy(callbackdata->chunkbuffer + callbackdata->chunkbuffer_size, metadata->data.application.data,metadata->length - 4);
+    callbackdata->chunkbuffer_size += metadata->length - 4;
+    if(callbackdata->chunkbuffer_data_location == 0)
+        // Check whether this is the data chunk
+        if(memcmp(metadata->data.application.data,"data",4) == 0) {
+            callbackdata->chunkbuffer_data_location = callbackdata->chunkbuffer_size;
+            callbackdata->chunkbuffer_data_length = (ZenLib::int64u)(metadata->data.application.data[4]) +
+                                                    ((ZenLib::int64u)(metadata->data.application.data[5]) << 8) +
+                                                    ((ZenLib::int64u)(metadata->data.application.data[6]) << 16) +
+                                                    ((ZenLib::int64u)(metadata->data.application.data[7]) << 24);
+        }
+}
+
+void FLAC_ErrorCallback(const FLAC__StreamDecoder *decoder, FLAC__StreamDecoderErrorStatus status, void *client_data) 
+{
+    File::clientdata_t * callbackdata = (File::clientdata_t *)(client_data);
+    (void) decoder;
+    (void) status;
+
+    callbackdata->got_error = true;
+}
+
+FLAC__StreamDecoderWriteStatus FLAC_WriteCallback(const FLAC__StreamDecoder *decoder, const FLAC__Frame *frame, const FLAC__int32 *const buffer[], void *client_data)
+{
+    File::clientdata_t * callbackdata = (File::clientdata_t *)(client_data);
+    ZenLib::int64u channels = frame->header.channels;
+    ZenLib::int64u bps = frame->header.bits_per_sample;
+    ZenLib::int64u blocksize = frame->header.blocksize;
+    (void) decoder;
+    if(callbackdata->audiobuffer_channels == 0 && callbackdata->audiobuffer_bps == 0) {
+        // First frame
+        callbackdata->audiobuffer_channels = channels;
+        callbackdata->audiobuffer_bps = bps;
+    }
+    else if(callbackdata->audiobuffer_channels != channels || callbackdata->audiobuffer_bps == bps) {
+        // Change of parameters mid-stream, which we don't handle
+        callbackdata->got_error = true;
+        return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
+    }
+    if(blocksize * channels * (bps / 8) > callbackdata->audiobuffer_size) {
+        void * temp_ptr = realloc(callbackdata->audiobuffer, blocksize * channels * (bps / 8));
+        if(temp_ptr == NULL) {
+            callbackdata->got_error = true;
+            return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
+        }
+        callbackdata->audiobuffer = (char *)temp_ptr;
+        callbackdata->audiobuffer_size = blocksize * channels * (bps / 8);
+    }
+
+    {
+        char * audiobuffer = callbackdata->audiobuffer;
+	if(bps > 8) {
+           for(ZenLib::int64u i = 0; i < blocksize; i++)
+               for(ZenLib::int64u j = 0; j < channels; j++) {
+                   memcpy(audiobuffer, &buffer[j][i], (bps / 8));
+                   audiobuffer += (bps/8);
+               }
+        }
+        else {
+           for(ZenLib::int64u i = 0; i < blocksize; i++)
+               for(ZenLib::int64u j = 0; j < channels; j++) {
+                   int tmp = buffer[j][i] + (1 << (bps-1));
+                   memcpy(audiobuffer, &tmp, (bps / 8));
+                   audiobuffer += (bps/8);
+               }
+        }
+    }
+    callbackdata->audiobuffer_sizeinuse = blocksize * channels * (bps / 8);
+    return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+}
 
 } //namespace

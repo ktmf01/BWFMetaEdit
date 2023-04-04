@@ -826,6 +826,12 @@ bool Riff_Handler::Save()
         return false;
     }
 
+    if (ZenLib::FileName(Chunks->Global->File_Name).Extension_Get() == ZenLib::Ztring("flac"))
+    {
+        Errors<<Chunks->Global->File_Name.To_UTF8()<<": Writing to FLAC is not yet supported"<<endl;
+        return false;
+    }
+
     //Modifying the chunks in memory
     for (size_t Fields_Pos=0; Fields_Pos<Fields_Max; Fields_Pos++)
         for (size_t Pos=0; Pos<xxxx_Strings_Size[Fields_Pos]; Pos++)
